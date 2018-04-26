@@ -3,7 +3,7 @@ package top.defaults.loggerapp;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 
-import top.defaults.logger.Logger;
+import timber.log.Timber;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -12,8 +12,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        Logger.logThreadStart();
-        Logger.d("Pretty log");
-        Logger.logThreadFinish();
+        Timber.d("Smart log");
     }
 }

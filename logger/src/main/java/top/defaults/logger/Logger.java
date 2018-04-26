@@ -1,5 +1,6 @@
 package top.defaults.logger;
 
+import android.text.TextUtils;
 import android.util.Log;
 
 import java.io.BufferedWriter;
@@ -151,6 +152,40 @@ public final class Logger {
         d(realTag(), "<<<<<<<< " + Thread.currentThread().getClass() + " finished running <<<<<<<<");
     }
 
+    /**
+     * A convenient method which can be used to adapt to <a href="https://github.com/JakeWharton/timber">Timber</a>.
+     *
+     * @param priority The priority of the log
+     * @param customTag The custom tag of the log, the real log tag will be determined at runtime, which
+     *                 will contain the file and line info
+     * @param message The log message
+     */
+    public static void logWithTimber(int priority, String customTag, String message) {
+        String tag = realTimberTag(customTag);
+        switch (priority) {
+            case Log.VERBOSE:
+                v(tag, message);
+                break;
+            case Log.DEBUG:
+                d(tag, message);
+                break;
+            case Log.INFO:
+                i(tag, message);
+                break;
+            case Log.WARN:
+                w(tag, message);
+                break;
+            case Log.ERROR:
+                e(tag, message);
+                break;
+            case Log.ASSERT:
+                wtf(tag, message);
+                break;
+            default:
+                break;
+        }
+    }
+
     private static void writeLogFile(String message) {
         if (logFilePath != null) {
             String fileName = logFilePath + (isLoggingToSibling ? siblingLogFileSuffix : "");
@@ -178,6 +213,10 @@ public final class Logger {
     private static String realTag() {
         return tagPrefix + "|" + getLineInfo();
     }
+
+    private static String realTimberTag(String timberTag) {
+        return (TextUtils.isEmpty(timberTag) ? tagPrefix : timberTag) + "|" + getLineInfoBypassTimber();
+    }
     
     /**
      * The magic number 5 is determined because of the stack trace:
@@ -201,5 +240,25 @@ public final class Logger {
         String fileName = stackTraceElement[5].getFileName();
         int lineNumber = stackTraceElement[5].getLineNumber();
         return ".(" + fileName + ":" + lineNumber + ")";
+    }
+
+    private static String getLineInfoBypassTimber() {
+        StackTraceElement[] stackTraceElement = Thread.currentThread().getStackTrace();
+        int offset = getStackOffsetBypassTimber(stackTraceElement);
+        if (offset < 0) return "";
+        String fileName = stackTraceElement[offset].getFileName();
+        int lineNumber = stackTraceElement[offset].getLineNumber();
+        return ".(" + fileName + ":" + lineNumber + ")";
+    }
+
+    private static int getStackOffsetBypassTimber(StackTraceElement[] stackTraceElements) {
+        for (int i = 6; i < stackTraceElements.length; i++) {
+            StackTraceElement e = stackTraceElements[i];
+            String name = e.getClassName();
+            if (!name.startsWith("timber.log.Timber")) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

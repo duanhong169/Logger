@@ -2,16 +2,21 @@ package top.defaults.logger;
 
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.SparseArray;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 
 @SuppressWarnings({"WeakerAccess", "unused"})
 public final class Logger {
@@ -19,10 +24,14 @@ public final class Logger {
     private static final String DEFAULT_TAG = "TopDefaultsLogger";
     private static String tagPrefix = DEFAULT_TAG;
     private static int level = Log.VERBOSE;
-    private static String logFilePath = null;
+    private static String logFilePath;
     private static int logFileSizeInMegabytes = 2;
-    private static final String siblingLogFileSuffix = "_1";
-    private static boolean isLoggingToSibling = false;
+    private static final String prevLogFileSuffix = "-prev";
+    private static BufferedWriter logWriter;
+    private static ExecutorService executorService;
+    private static Timer timer;
+    private static TimerTask scheduledFlushTask;
+    private static TimerTask scheduledCloseTask;
 
     /**
      * Set the log level, which reuse the definition of {@link Log}, {@link Log#VERBOSE},
@@ -55,7 +64,7 @@ public final class Logger {
     }
 
     /**
-     * Set the path for log file，we will keep at most two log files (one with the suffix "_1")
+     * Set the path for log file，we will keep at most two log files (one with the suffix "-prev")
      * and the file size will be limited at {@link #setLogFileMaxSizeInMegabytes(int)}, if one
      * file exceed the limit, the following logs will be written to the other one.
      *
@@ -67,6 +76,20 @@ public final class Logger {
      */
     public static void setLogFile(String filePath) {
         logFilePath = filePath;
+
+        if (filePath == null) {
+            executorService.shutdown();
+            timer.cancel();
+            return;
+        }
+
+        if (executorService == null) {
+            executorService = Executors.newSingleThreadExecutor();
+        }
+
+        if (timer == null) {
+            timer = new Timer();
+        }
     }
 
     /**
@@ -78,78 +101,91 @@ public final class Logger {
         logFileSizeInMegabytes = sizeInMegabytes;
     }
 
-    public static void v(String message) {
-        v(realTag(), message);
+    public static void v(String message, Object... args) {
+        vWithTag(realTag(), message, args);
     }
 
-    public static void d(String message) {
-        d(realTag(), message);
+    public static void d(String message, Object... args) {
+        dWithTag(realTag(), message, args);
     }
 
-    public static void i(String message) {
-        i(realTag(), message);
+    public static void i(String message, Object... args) {
+        iWithTag(realTag(), message, args);
     }
 
-    public static void w(String message) {
-        w(realTag(), message);
+    public static void w(String message, Object... args) {
+        wWithTag(realTag(), message, args);
     }
 
-    public static void e(String message) {
-        e(realTag(), message);
+    public static void e(String message, Object... args) {
+        eWithTag(realTag(), message, args);
     }
 
-    public static void wtf(String message) {
-        wtf(realTag(), message);
+    public static void wtf(String message, Object... args) {
+        wtfWithTag(realTag(), message, args);
     }
 
-    public static void v(String tag, String message) {
-        if (level > Log.VERBOSE && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
-            return;
-        Log.v(tag, message);
-        writeLogFile(tag + "\t" + message);
+    public static void vWithTag(String tag, String message, Object... args) {
+        log(Log.VERBOSE, tag, message, args);
     }
 
-    public static void d(String tag, String message) {
-        if (level > Log.DEBUG && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
-            return;
-        Log.d(tag, message);
-        writeLogFile(tag + "\t" + message);
+    public static void dWithTag(String tag, String message, Object... args) {
+        log(Log.DEBUG, tag, message, args);
     }
 
-    public static void i(String tag, String message) {
-        if (level > Log.INFO && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
-            return;
-        Log.i(tag, message);
-        writeLogFile(tag + "\t" + message);
+    public static void iWithTag(String tag, String message, Object... args) {
+        log(Log.INFO, tag, message, args);
     }
 
-    public static void w(String tag, String message) {
-        if (level > Log.WARN && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
-            return;
-        Log.w(tag, message);
-        writeLogFile(tag + "\t" + message);
+    public static void wWithTag(String tag, String message, Object... args) {
+        log(Log.WARN, tag, message, args);
     }
 
-    public static void e(String tag, String message) {
-        if (level > Log.ERROR && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
-            return;
-        Log.e(tag, message);
-        writeLogFile(tag + "\t" + message);
+    public static void eWithTag(String tag, String message, Object... args) {
+        log(Log.ERROR, tag, message, args);
     }
 
-    public static void wtf(String tag, String message) {
-        if (level > Log.ASSERT && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
-            return;
-        Log.wtf(tag, message);
-        writeLogFile(tag + "\t" + message);
+    public static void wtfWithTag(String tag, String message, Object... args) {
+        log(Log.ASSERT, tag, message, args);
     }
 
     public static void logThreadStart() {
-        d(realTag(), ">>>>>>>> " + Thread.currentThread().getClass() + " start running >>>>>>>>");
+        dWithTag(realTag(), ">>>>>>>> " + Thread.currentThread().getClass() + " start running >>>>>>>>");
     }
 
     public static void logThreadFinish() {
-        d(realTag(), "<<<<<<<< " + Thread.currentThread().getClass() + " finished running <<<<<<<<");
+        dWithTag(realTag(), "<<<<<<<< " + Thread.currentThread().getClass() + " finished running <<<<<<<<");
+    }
+
+    private static void log(int priority, String tag, String message, Object... args) {
+        if (level > priority && !Log.isLoggable(Logger.tagPrefix, Log.DEBUG))
+            return;
+
+        message = formatMessage(message, args);
+        if (priority == Log.ASSERT) {
+            Log.wtf(tag, message);
+        } else {
+            Log.println(priority, tag, message);
+        }
+
+        try {
+            writeLogFile(priorityAbbr(priority) + "/" + tag + "\t" + message);
+        } catch (Exception ignored) {} // fail silent
+    }
+
+    private static SparseArray<String> PRIORITY_MAP = new SparseArray<>();
+
+    static {
+        PRIORITY_MAP.append(Log.VERBOSE, "V");
+        PRIORITY_MAP.append(Log.DEBUG, "D");
+        PRIORITY_MAP.append(Log.INFO, "I");
+        PRIORITY_MAP.append(Log.WARN, "W");
+        PRIORITY_MAP.append(Log.ERROR, "E");
+        PRIORITY_MAP.append(Log.ASSERT, "X");
+    }
+
+    private static String priorityAbbr(int priority) {
+        return PRIORITY_MAP.get(priority);
     }
 
     /**
@@ -164,49 +200,114 @@ public final class Logger {
         String tag = realTimberTag(customTag);
         switch (priority) {
             case Log.VERBOSE:
-                v(tag, message);
+                vWithTag(tag, message);
                 break;
             case Log.DEBUG:
-                d(tag, message);
+                dWithTag(tag, message);
                 break;
             case Log.INFO:
-                i(tag, message);
+                iWithTag(tag, message);
                 break;
             case Log.WARN:
-                w(tag, message);
+                wWithTag(tag, message);
                 break;
             case Log.ERROR:
-                e(tag, message);
+                eWithTag(tag, message);
                 break;
             case Log.ASSERT:
-                wtf(tag, message);
+                wtfWithTag(tag, message);
                 break;
             default:
                 break;
         }
     }
 
-    private static void writeLogFile(String message) {
+    private static String formatMessage(String message, Object[] args) {
+        if (args != null && args.length > 0) {
+            message = String.format(message, args);
+        }
+        return message;
+    }
+
+    private static void writeLogFile(final String message) {
         if (logFilePath != null) {
-            String fileName = logFilePath + (isLoggingToSibling ? siblingLogFileSuffix : "");
-            File currentLogFile = new File(fileName);
-            if (currentLogFile.length() >= logFileSizeInMegabytes * 1024 * 1024) {
-                isLoggingToSibling = !isLoggingToSibling;
-                
-                // delete file before write
-                try {
-                    PrintWriter writer = new PrintWriter(fileName);
-                    writer.print("");
-                    writer.close();
-                } catch (FileNotFoundException ignored) {}
+            SimpleDateFormat sdfDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
+            final String strDate = sdfDate.format(new Date());
+
+            String line = strDate + " " + message;
+            executorService.submit(new LogWriterRunnable(line));
+
+            if (scheduledFlushTask != null) {
+                scheduledFlushTask.cancel();
             }
+            scheduledFlushTask = new TimerTask() {
+                @Override
+                public void run() {
+                    FutureTask<Void> flushTask = new FutureTask<>(new Callable<Void>() {
+                        @Override
+                        public Void call() throws Exception {
+                            logWriter.flush();
+                            return null;
+                        }
+                    });
+                    executorService.submit(flushTask);
+                }
+            };
+            timer.schedule(scheduledFlushTask, 1000);
+
+            if (scheduledCloseTask != null) {
+                scheduledCloseTask.cancel();
+            }
+            scheduledCloseTask = new TimerTask() {
+                @Override
+                public void run() {
+                    FutureTask<Void> closeTask = new FutureTask<>(new Callable<Void>() {
+                        @Override
+                        public Void call() throws Exception {
+                            logWriter.close();
+                            logWriter = null;
+                            return null;
+                        }
+                    });
+                    executorService.submit(closeTask);
+                }
+            };
+            timer.schedule(scheduledCloseTask, 1000 * 60);
+        }
+    }
+
+    private static class LogWriterRunnable implements Runnable {
+
+        private final String line;
+
+        LogWriterRunnable(String line) {
+            this.line = line;
+        }
+
+        @Override
+        public void run() {
             try {
-                BufferedWriter logOut = new BufferedWriter(new FileWriter(fileName, true));
-                SimpleDateFormat sdfDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
-                String strDate = sdfDate.format(new Date());
-                logOut.append(strDate).append("\t").append(message).append("\n");
-                logOut.close();
+                if (logWriter == null) {
+                    logWriter = new BufferedWriter(new FileWriter(logFilePath, true));
+                }
+                logWriter.append(line);
+                logWriter.newLine();
             } catch (IOException ignored) {}
+
+            File currentFile = new File(logFilePath);
+            if (currentFile.length() >= logFileSizeInMegabytes * 1024 * 1024) {
+                // delete previous log file and change current log file to prev
+                File prevFile = new File(logFilePath + prevLogFileSuffix);
+
+                //noinspection ResultOfMethodCallIgnored
+                currentFile.renameTo(prevFile);
+                try {
+                    logWriter.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                logWriter = null;
+            }
         }
     }
 

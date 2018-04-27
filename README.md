@@ -45,6 +45,20 @@ Logger.e("Logger: %s", variable);
 Logger.wtf("Logger: %s", variable);
 ```
 
+### Integrate with Timber
+
+```java
+
+private static class LoggerTree extends Timber.Tree {
+    @Override
+    protected void log(int priority, String tag, @NonNull String message, Throwable t) {
+        Logger.logWithTimber(priority, tag, message);
+    }
+}
+
+Timber.plant(new LoggerTree());
+```
+
 ### Control logcat output
 
 Use shell commands:

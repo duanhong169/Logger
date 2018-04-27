@@ -26,21 +26,29 @@ public class MainActivity extends AppCompatActivity {
                         Logger.setLogFile(Environment.getExternalStorageDirectory().getPath() + "/0/dev/log");
                     }
 
-                    for (int i = 0; i < 3000; i++) {
-                        Timber.v("Smart log");
-                        Timber.d("Smart log");
-                        Timber.i("Smart log");
-                        Timber.w("Smart log");
-                        Timber.e("Smart log");
-                        Timber.wtf("Smart log");
+                    new Thread(() -> {
+                        for (int i = 0; i < 600; i++) {
+                            Timber.v("Logger");
+                            Timber.d("Logger");
+                            Timber.i("Logger");
+                            Timber.w("Logger");
+                            Timber.e("Logger");
+                            Timber.wtf("Logger");
 
-                        Logger.v("Smart log: %s", getClass().getCanonicalName());
-                        Logger.d("Smart log: %s", getClass().getCanonicalName());
-                        Logger.i("Smart log: %s", getClass().getCanonicalName());
-                        Logger.w("Smart log: %s", getClass().getCanonicalName());
-                        Logger.e("Smart log: %s", getClass().getCanonicalName());
-                        Logger.wtf("Smart log: %s", getClass().getCanonicalName());
-                    }
+                            Logger.v("Logger: %s", getClass().getCanonicalName());
+                            Logger.d("Logger: %s", getClass().getCanonicalName());
+                            Logger.i("Logger: %s", getClass().getCanonicalName());
+                            Logger.w("Logger: %s", getClass().getCanonicalName());
+                            Logger.e("Logger: %s", getClass().getCanonicalName());
+                            Logger.wtf("Logger: %s", getClass().getCanonicalName());
+
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }).start();
                 });
     }
 }

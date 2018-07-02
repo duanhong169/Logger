@@ -72,6 +72,6 @@ adb shell setprop log.tag.MyApplication INFO  # Close
 
 For more details, see the sample app.
 
-### License
+## License
 
 See the [LICENSE](./LICENSE) file.
